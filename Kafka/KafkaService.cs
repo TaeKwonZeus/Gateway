@@ -11,14 +11,13 @@ public sealed class KafkaService : BackgroundService
 
     private readonly ProducerConfig _producerConfig = new()
     {
-        BootstrapServers = "localhost:9092",
+        BootstrapServers = Environment.GetEnvironmentVariable("KAFKA_SERVER") ?? "localhost:9092",
     };
 
     private readonly ConsumerConfig _consumerConfig = new()
     {
-        BootstrapServers = "localhost:9092",
-
-        GroupId = "gateway",
+        BootstrapServers = Environment.GetEnvironmentVariable("KAFKA_SERVER") ?? "localhost:9092",
+        GroupId = Environment.GetEnvironmentVariable("KAFKA_GROUP_ID") ?? "gateway"
     };
 
     private readonly IProducer<Guid, byte[]> _producer;
@@ -55,29 +54,23 @@ public sealed class KafkaService : BackgroundService
         // Consume is blocking so we have to start a separate thread
         var thread = new Thread(() =>
         {
-            try
+            while (true)
             {
-                while (true)
+                var cr = _consumer.Consume(_cts);
+                try
                 {
-                    var cr = _consumer.Consume(_cts);
-                    try
-                    {
-                        HandleReceived(cr);
-                    }
-                    catch (Exception e)
-                    {
-                        _logger.LogError(e, "Failed to handle consumed message from topic {} with key {}",
-                            cr.Topic, cr.Message.Key);
-                    }
+                    HandleReceived(cr);
                 }
-            }
-            catch (OperationCanceledException)
-            {
-                tcs.SetResult();
-            }
-            catch (Exception e)
-            {
-                tcs.SetException(e);
+                catch (OperationCanceledException e)
+                {
+                    tcs.SetResult();
+                    return;
+                }
+                catch (Exception e)
+                {
+                    _logger.LogError(e, "Failed to handle consumed message from topic {} with key {}",
+                        cr.Topic, cr.Message.Key);
+                }
             }
         });
         thread.Start();
